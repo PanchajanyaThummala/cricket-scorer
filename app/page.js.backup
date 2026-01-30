@@ -1,0 +1,574 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { ref, set, onValue, update } from 'firebase/database';
+import { db } from '../lib/firebase';
+import { generateMatchPINs, detectPINType } from '../lib/matchUtils';
+import './cricket-scorer.css';
+
+export default function CricketScorer() {
+  // App mode: 'landing' | 'setup' | 'pinDisplay' | 'join' | 'match'
+  const [appMode, setAppMode] = useState('landing');
+  const [userMode, setUserMode] = useState(null); // 'creator' | 'viewer' | 'scorer'
+  const [matchPINs, setMatchPINs] = useState(null); // { viewerPIN, scorerPIN }
+  const [currentMatchPIN, setCurrentMatchPIN] = useState(null); // PIN user joined with
+  const [joinPIN, setJoinPIN] = useState('');
+
+  // Game setup state
+  const [team1Name, setTeam1Name] = useState('Team 1');
+  const [team2Name, setTeam2Name] = useState('Team 2');
+  const [totalOvers, setTotalOvers] = useState(10);
+  const [extrasScoring, setExtrasScoring] = useState(true);
+
+  // Game state
+  const [matchStarted, setMatchStarted] = useState(false);
+  const [currentInnings, setCurrentInnings] = useState(1);
+  const [matchEnded, setMatchEnded] = useState(false);
+
+  // Team data
+  const [team1, setTeam1] = useState({ runs: 0, wickets: 0, completedOvers: 0, currentOverBalls: [], allOvers: [] });
+  const [team2, setTeam2] = useState({ runs: 0, wickets: 0, completedOvers: 0, currentOverBalls: [], allOvers: [] });
+
+  // History for undo
+  const [history, setHistory] = useState([]);
+
+  // UI state
+  const [showHistory, setShowHistory] = useState(false);
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+  // Show toast notification
+  const showToast = (message, type = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 3000);
+  };
+
+  // Get current team data
+  const currentTeam = currentInnings === 1 ? team1 : team2;
+  const setCurrentTeam = currentInnings === 1 ? setTeam1 : setTeam2;
+  const currentTeamName = currentInnings === 1 ? team1Name : team2Name;
+
+  // Load from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('cricketScorerNext');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        setTeam1Name(data.team1Name);
+        setTeam2Name(data.team2Name);
+        setTotalOvers(data.totalOvers);
+        setExtrasScoring(data.extrasScoring);
+        setMatchStarted(data.matchStarted);
+        setCurrentInnings(data.currentInnings);
+        setTeam1(data.team1);
+        setTeam2(data.team2);
+      } catch (e) {
+        console.error('Failed to load:', e);
+      }
+    }
+  }, []);
+
+  // Save to localStorage
+  useEffect(() => {
+    if (matchStarted) {
+      localStorage.setItem('cricketScorerNext', JSON.stringify({
+        team1Name, team2Name, totalOvers, extrasScoring,
+        matchStarted, currentInnings, team1, team2
+      }));
+    }
+  }, [team1Name, team2Name, totalOvers, extrasScoring, matchStarted, currentInnings, team1, team2]);
+
+  const startMatch = () => {
+    setTeam1({ runs: 0, wickets: 0, completedOvers: 0, currentOverBalls: [], allOvers: [] });
+    setTeam2({ runs: 0, wickets: 0, completedOvers: 0, currentOverBalls: [], allOvers: [] });
+    setHistory([]);
+    setCurrentInnings(1);
+    setMatchStarted(true);
+    setMatchEnded(false);
+  };
+
+  const addBall = (runs, isWicket, isExtra, extraType) => {
+    // Check if innings is over (total overs reached or 10 wickets)
+    const legalBallsInCurrentOver = currentTeam.currentOverBalls.filter(b => !b.isExtra).length;
+    const totalOversCompleted = currentTeam.completedOvers + (legalBallsInCurrentOver / 6);
+
+    if (totalOversCompleted >= totalOvers || currentTeam.wickets >= 10) {
+      showToast('⚠️ Innings complete! Please end innings to continue.', 'warning');
+      return;
+    }
+
+    // Save history
+    setHistory([...history, { team1: { ...team1 }, team2: { ...team2 }, currentInnings }]);
+
+    const newTeam = { ...currentTeam };
+    newTeam.runs += runs;
+    if (isWicket) newTeam.wickets++;
+
+    newTeam.currentOverBalls = [...newTeam.currentOverBalls, { runs, isWicket, isExtra, extraType }];
+
+    // Check if over complete (6 legal balls)
+    if (!isExtra) {
+      const legalBalls = newTeam.currentOverBalls.filter(b => !b.isExtra).length;
+      if (legalBalls === 6) {
+        newTeam.allOvers = [...newTeam.allOvers, newTeam.currentOverBalls];
+        newTeam.completedOvers++;
+        newTeam.currentOverBalls = [];
+
+        // Notify over complete
+        setTimeout(() => {
+          showToast(`✅ Over ${newTeam.completedOvers} Complete!`, 'success');
+        }, 100);
+      }
+    }
+
+    setCurrentTeam(newTeam);
+
+    // Check if team 2 won
+    if (currentInnings === 2 && newTeam.runs > team1.runs) {
+      setTimeout(() => setMatchEnded(true), 500);
+      return;
+    }
+
+    // Check if innings just completed (after updating team)
+    const newLegalBalls = newTeam.currentOverBalls.filter(b => !b.isExtra).length;
+    const newTotalOvers = newTeam.completedOvers + (newLegalBalls / 6);
+
+    if (newTotalOvers >= totalOvers || newTeam.wickets >= 10) {
+      if (currentInnings === 1) {
+        // Auto-switch to Team 2 after 2 seconds
+        showToast(`🏏 Innings Complete! Switching to ${team2Name} in 2 seconds...`, 'info');
+        setTimeout(() => {
+          setCurrentInnings(2);
+          showToast(`🔄 ${team2Name} batting now!`, 'success');
+        }, 2000);
+      } else {
+        // Match complete
+        setTimeout(() => {
+          showToast('🏁 Match Complete!', 'success');
+        }, 500);
+      }
+    }
+  };
+
+  const addExtra = (type) => {
+    const runs = extrasScoring ? 1 : 0;
+    addBall(runs, false, true, type);
+  };
+
+  const forceNewOver = () => {
+    if (currentTeam.currentOverBalls.length === 0) return;
+    if (confirm('Start new over? Current over incomplete.')) {
+      setHistory([...history, { team1: { ...team1 }, team2: { ...team2 }, currentInnings }]);
+      const newTeam = { ...currentTeam };
+      newTeam.allOvers = [...newTeam.allOvers, newTeam.currentOverBalls];
+      newTeam.completedOvers++;
+      newTeam.currentOverBalls = [];
+      setCurrentTeam(newTeam);
+    }
+  };
+
+  const undoLastBall = () => {
+    if (history.length === 0) return;
+    const last = history[history.length - 1];
+    setTeam1(last.team1);
+    setTeam2(last.team2);
+    setCurrentInnings(last.currentInnings);
+    setHistory(history.slice(0, -1));
+  };
+
+  const endInnings = () => {
+    const newTeam = { ...currentTeam };
+    if (newTeam.currentOverBalls.length > 0) {
+      newTeam.allOvers = [...newTeam.allOvers, newTeam.currentOverBalls];
+      newTeam.completedOvers++;
+      newTeam.currentOverBalls = [];
+      setCurrentTeam(newTeam);
+    }
+
+    if (currentInnings === 1) {
+      setCurrentInnings(2);
+      showToast(`🔄 Switching to ${team2Name}`, 'info');
+    } else {
+      setMatchEnded(true);
+    }
+  };
+
+  const endMatch = () => {
+    // Save current overs for both teams before ending
+    const updatedTeam1 = { ...team1 };
+    const updatedTeam2 = { ...team2 };
+
+    // Complete Team 1's current over if there are balls
+    if (updatedTeam1.currentOverBalls.length > 0) {
+      updatedTeam1.allOvers = [...updatedTeam1.allOvers, updatedTeam1.currentOverBalls];
+      updatedTeam1.completedOvers++;
+      updatedTeam1.currentOverBalls = [];
+    }
+
+    // Complete Team 2's current over if there are balls
+    if (updatedTeam2.currentOverBalls.length > 0) {
+      updatedTeam2.allOvers = [...updatedTeam2.allOvers, updatedTeam2.currentOverBalls];
+      updatedTeam2.completedOvers++;
+      updatedTeam2.currentOverBalls = [];
+    }
+
+    // Update both teams
+    setTeam1(updatedTeam1);
+    setTeam2(updatedTeam2);
+
+    // End match after a tiny delay to ensure state updates
+    setTimeout(() => setMatchEnded(true), 50);
+  };
+
+  const resetMatch = () => {
+    setMatchStarted(false);
+    setMatchEnded(false);
+    setTeam1({ runs: 0, wickets: 0, completedOvers: 0, currentOverBalls: [], allOvers: [] });
+    setTeam2({ runs: 0, wickets: 0, completedOvers: 0, currentOverBalls: [], allOvers: [] });
+    setHistory([]);
+    setCurrentInnings(1);
+    localStorage.removeItem('cricketScorerNext');
+    showToast('🔄 New match started!', 'info');
+  };
+
+  const getOversDisplay = (team) => {
+    const legalBalls = team.currentOverBalls.filter(b => !b.isExtra).length;
+    return `${team.completedOvers}.${legalBalls}`;
+  };
+
+  const getWinner = () => {
+    if (team1.runs > team2.runs) {
+      return `🏆 ${team1Name} wins by ${team1.runs - team2.runs} runs!`;
+    } else if (team2.runs > team1.runs) {
+      return `🏆 ${team2Name} wins by ${10 - team2.wickets} wickets!`;
+    }
+    return '🤝 Match Tied!';
+  };
+
+  // Setup Modal
+  if (!matchStarted) {
+    return (
+      <div className="modal active">
+        <div className="modal-content">
+          <h1>⚡ Cricket Scorer</h1>
+          <p className="modal-subtitle">Set up your match</p>
+
+          <div className="setup-section">
+            <label>Team 1 Name</label>
+            <input className="team-input" value={team1Name} onChange={e => setTeam1Name(e.target.value)} placeholder="Team 1" />
+          </div>
+
+          <div className="setup-section">
+            <label>Team 2 Name</label>
+            <input className="team-input" value={team2Name} onChange={e => setTeam2Name(e.target.value)} placeholder="Team 2" />
+          </div>
+
+          <div className="setup-section">
+            <label>Total Overs</label>
+            <div className="overs-input-group">
+              <input type="number" value={totalOvers} onChange={e => setTotalOvers(parseInt(e.target.value))} min="1" max="50" />
+            </div>
+            <div className="preset-buttons">
+              {[5, 10, 20, 50].map(o => (
+                <button key={o} className={`preset-btn ${totalOvers === o ? 'active' : ''}`} onClick={() => setTotalOvers(o)}>{o}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="setup-section">
+            <label>Extras Scoring</label>
+            <div className="toggle-container">
+              <span className={`toggle-label ${!extrasScoring ? 'active' : ''}`}>Off</span>
+              <div className="toggle-switch">
+                <input type="checkbox" checked={extrasScoring} onChange={e => setExtrasScoring(e.target.checked)} />
+                <span className="toggle-slider"></span>
+              </div>
+              <span className={`toggle-label ${extrasScoring ? 'active' : ''}`}>On</span>
+            </div>
+          </div>
+
+          <button className="start-btn" onClick={startMatch}>🏏 Start Match</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Match End Modal
+  if (matchEnded) {
+    return (
+      <div className="modal active">
+        <div className="modal-content match-summary">
+          <h1>🏆 Match Complete!</h1>
+
+          <div className="final-scores-grid">
+            <div className="team-score-card">
+              <div className="team-header">{team1Name}</div>
+              <div className="team-score">{team1.runs}/{team1.wickets}</div>
+              <div className="team-overs">({getOversDisplay(team1)} overs)</div>
+            </div>
+
+            <div className="vs-divider">VS</div>
+
+            <div className="team-score-card">
+              <div className="team-header">{team2Name}</div>
+              <div className="team-score">{team2.runs}/{team2.wickets}</div>
+              <div className="team-overs">({getOversDisplay(team2)} overs)</div>
+            </div>
+          </div>
+
+          <div className="winner-announcement">{getWinner()}</div>
+
+          <div className="innings-comparison">
+            <h3>📊 Ball-by-Ball Summary</h3>
+            <div className="innings-grid">
+              {/* Team 1 Innings */}
+              <div className="innings-column">
+                <div className="innings-header">{team1Name} Innings</div>
+                <div className="innings-stats">
+                  {team1.allOvers.length > 0 ? (
+                    team1.allOvers.map((over, idx) => (
+                      <div key={idx} className="over-summary">
+                        <div className="over-label">Over {idx + 1}</div>
+                        <div className="over-balls-mini">
+                          {over.map((ball, ballIdx) => (
+                            <span key={ballIdx} className={`mini-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
+                              {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="no-data">No data</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Team 2 Innings */}
+              <div className="innings-column">
+                <div className="innings-header">{team2Name} Innings</div>
+                <div className="innings-stats">
+                  {team2.allOvers.length > 0 ? (
+                    team2.allOvers.map((over, idx) => (
+                      <div key={idx} className="over-summary">
+                        <div className="over-label">Over {idx + 1}</div>
+                        <div className="over-balls-mini">
+                          {over.map((ball, ballIdx) => (
+                            <span key={ballIdx} className={`mini-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
+                              {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="no-data">No data</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button className="start-btn" onClick={resetMatch}>🔄 New Match</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Main App
+  const progressPercent = ((currentTeam.completedOvers * 6 + currentTeam.currentOverBalls.filter(b => !b.isExtra).length) / (totalOvers * 6)) * 100;
+
+  return (
+    <div className="container">
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className={`toast toast-${toast.type}`} style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          background: toast.type === 'success' ? 'linear-gradient(135deg, #10b981, #059669)' :
+            toast.type === 'warning' ? 'linear-gradient(135deg, #f59e0b, #d97706)' :
+              'linear-gradient(135deg, #3b82f6, #2563eb)',
+          color: 'white',
+          padding: '1rem 1.5rem',
+          borderRadius: '0.75rem',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+          zIndex: 9999,
+          fontSize: '1rem',
+          fontWeight: '600',
+          animation: 'slideIn 0.3s ease',
+          maxWidth: '300px'
+        }}>
+          {toast.message}
+        </div>
+      )}
+
+      <header className="app-header">
+        <div className="header-left">
+          <h1>Cricket Scorer</h1>
+          <div className="current-team">{currentTeamName} Batting</div>
+        </div>
+        <button className="icon-btn" onClick={resetMatch} title="Start New Match">🔄</button>
+      </header>
+
+      <div className="score-card">
+        <div className="score-main">
+          <div className="score-display">
+            <div className="runs">{currentTeam.runs}</div>
+            <div className="separator">/</div>
+            <div className="wickets">{currentTeam.wickets}</div>
+          </div>
+          <div className="score-label">Runs / Wickets</div>
+        </div>
+
+        <div className="overs-display">
+          <div className="overs-value">
+            <span>{getOversDisplay(currentTeam)}</span>
+            <span className="separator">/</span>
+            <span>{totalOvers}</span>
+          </div>
+          <div className="overs-label">Overs</div>
+        </div>
+      </div>
+
+      {/* Team 2 Target Display */}
+      {currentInnings === 2 && (
+        <div className="target-display">
+          <div className="target-info">
+            <div className="target-needed">
+              <span className="target-label">Need </span>
+              <span className="target-value">{Math.max(0, team1.runs - team2.runs + 1)}</span>
+              <span className="target-label"> runs in </span>
+              <span className="target-value">
+                {Math.max(0, (totalOvers * 6) - (team2.completedOvers * 6 + team2.currentOverBalls.filter(b => !b.isExtra).length))}
+              </span>
+              <span className="target-label"> balls</span>
+            </div>
+            <div className="required-rr">
+              RRR: {
+                (() => {
+                  const ballsLeft = Math.max(0, (totalOvers * 6) - (team2.completedOvers * 6 + team2.currentOverBalls.filter(b => !b.isExtra).length));
+                  const runsNeeded = Math.max(0, team1.runs - team2.runs + 1);
+                  return ballsLeft > 0 ? ((runsNeeded / ballsLeft) * 6).toFixed(2) : '0.00';
+                })()
+              }
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="progress-container">
+        <div className="progress-bar" style={{ width: `${Math.min(progressPercent, 100)}%` }}></div>
+      </div>
+
+
+      <div className="current-over-section">
+        <h3>Current Over</h3>
+        <div className="ball-indicators">
+          {currentTeam.currentOverBalls.map((ball, i) => (
+            <div key={i} className={`ball-indicator ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
+              {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+            </div>
+          ))}
+          {[...Array(6 - currentTeam.currentOverBalls.filter(b => !b.isExtra).length)].map((_, i) => (
+            <div key={`empty-${i}`} className="ball-indicator" style={{ opacity: 0.3 }}>•</div>
+          ))}
+        </div>
+      </div>
+
+      <div className="scoring-section">
+        <h3>Score Runs</h3>
+        <div className="run-buttons">
+          {[0, 1, 2, 3, 4, 6].map(runs => (
+            <button key={runs} className="run-btn" onClick={() => addBall(runs, false, false, null)}>{runs}</button>
+          ))}
+        </div>
+
+        <button className="wicket-btn" onClick={() => addBall(0, true, false, null)}>
+          <span>⚡</span> <span>Wicket</span>
+        </button>
+
+        <h3>Extras</h3>
+        <div className="extras-buttons">
+          <button className="extra-btn" onClick={() => addExtra('wide')}>
+            <span className="extra-label">Wide</span>
+            <span className="extra-score">{extrasScoring ? '+1' : '+0'}</span>
+          </button>
+          <button className="extra-btn" onClick={() => addExtra('noball')}>
+            <span className="extra-label">No Ball</span>
+            <span className="extra-score">{extrasScoring ? '+1' : '+0'}</span>
+          </button>
+        </div>
+        <p className="extras-note">* Extras don't count as legal deliveries</p>
+      </div>
+
+
+      <div className="controls">
+        <button className="control-btn" onClick={undoLastBall} disabled={history.length === 0}>↶ Undo</button>
+        <button className="control-btn" onClick={forceNewOver} disabled={currentTeam.currentOverBalls.length === 0}>New Over</button>
+      </div>
+
+      {currentInnings === 1 && (
+        <button className="end-innings-btn" onClick={() => {
+          setCurrentInnings(2);
+          showToast(`🔄 ${team2Name} batting now!`, 'success');
+        }} style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+          ▶️ Start 2nd Innings ({team2Name})
+        </button>
+      )}
+
+      <button className="end-innings-btn" onClick={endMatch} style={{ marginTop: currentInnings === 1 ? '0.5rem' : '0' }}>
+        🏁 End Match
+      </button>
+
+
+      <div className="history-section">
+        <h3>Match History</h3>
+        <button className="history-toggle" onClick={() => setShowHistory(!showHistory)}>
+          <span>View Ball-by-Ball History</span>
+          <span>{showHistory ? '▲' : '▼'}</span>
+        </button>
+
+        {showHistory && (
+          <div className="history-content">
+            {[{ name: team1Name, data: team1, isCurrent: currentInnings === 1 },
+            { name: team2Name, data: team2, isCurrent: currentInnings === 2 }].map(({ name, data, isCurrent }, idx) => (
+              (data.allOvers.length > 0 || (isCurrent && data.currentOverBalls.length > 0)) && (
+                <div key={idx} className="innings-history">
+                  <div className="innings-title">{name} - {data.runs}/{data.wickets} ({getOversDisplay(data)} overs)</div>
+
+                  {/* Completed Overs */}
+                  {data.allOvers.map((over, overIdx) => (
+                    <div key={overIdx} className="over-history">
+                      <div className="over-number">Over {overIdx + 1}</div>
+                      <div className="over-balls">
+                        {over.map((ball, ballIdx) => (
+                          <div key={ballIdx} className={`history-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
+                            {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Current Over (if any balls) */}
+                  {isCurrent && data.currentOverBalls.length > 0 && (
+                    <div className="over-history current-over-highlight">
+                      <div className="over-number">Over {data.completedOvers + 1} (In Progress)</div>
+                      <div className="over-balls">
+                        {data.currentOverBalls.map((ball, ballIdx) => (
+                          <div key={ballIdx} className={`history-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
+                            {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
