@@ -872,7 +872,7 @@ export default function CricketScorer() {
             </div>
 
             <button className="wicket-btn" onClick={() => addBall(0, true, false, null)}>
-              <span>⚡</span> <span>Wicket</span>
+              <span>Wicket</span>
             </button>
 
             <h3>Extras</h3>

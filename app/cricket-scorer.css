@@ -79,59 +79,7 @@ body::before {
     z-index: 0;
 }
 
-/* Minimalist cricket doodles */
-body::after {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    opacity: 0.12;
-    background-image:
-        url("data:image/svg+xml,%3Csvg width='120' height='120' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='60' cy='60' r='20' stroke='%23667eea' stroke-width='1.5' fill='none' opacity='0.4'/%3E%3Cpath d='M60 35 L60 85 M60 50 L75 50 M60 70 L75 70' stroke='%23667eea' stroke-width='1.5' opacity='0.3'/%3E%3C/svg%3E");
-    background-size: 300px 300px;
-    background-position: 0 0, 150px 150px;
-    pointer-events: none;
-    z-index: 0;
-}
-
-/* Cricket stumps pattern - very subtle */
-.container::before {
-    content: '🏏';
-    position: fixed;
-    font-size: 120px;
-    opacity: 0.04;
-    top: 15%;
-    left: 5%;
-    pointer-events: none;
-    transform: rotate(-20deg);
-    animation: fadePattern 8s ease-in-out infinite;
-}
-
-.container::after {
-    content: '🏏';
-    position: fixed;
-    font-size: 100px;
-    opacity: 0.04;
-    bottom: 15%;
-    right: 8%;
-    pointer-events: none;
-    transform: rotate(45deg);
-    animation: fadePattern 8s ease-in-out infinite 4s;
-}
-
-@keyframes fadePattern {
-
-    0%,
-    100% {
-        opacity: 0.3;
-    }
-
-    50% {
-        opacity: 1;
-    }
-}
+/* Clean UI - No background patterns */
 
 /* Utility Classes */
 .hidden {
@@ -1347,6 +1295,7 @@ body::after {
     color: var(--color-accent-crimson);
     border-color: var(--color-accent-crimson);
 }
+
 /* Target Display for Team 2 */
 .target-display {
     background: linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(45, 62, 95, 0.15));
