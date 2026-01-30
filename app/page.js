@@ -638,8 +638,8 @@ export default function CricketScorer() {
               <div className="innings-column">
                 <div className="innings-header">{team1Name} Innings</div>
                 <div className="innings-stats">
-                  {team1.allOvers.length > 0 ? (
-                    team1.allOvers.map((over, idx) => (
+                  {(team1.allOvers.length > 0 || team1.currentOverBalls.length > 0) ? (
+                    [...team1.allOvers, ...(team1.currentOverBalls.length > 0 ? [team1.currentOverBalls] : [])].map((over, idx) => (
                       <div key={idx} className="over-summary">
                         <div className="over-label">Over {idx + 1}</div>
                         <div className="over-balls-mini">
@@ -661,8 +661,8 @@ export default function CricketScorer() {
               <div className="innings-column">
                 <div className="innings-header">{team2Name} Innings</div>
                 <div className="innings-stats">
-                  {team2.allOvers.length > 0 ? (
-                    team2.allOvers.map((over, idx) => (
+                  {(team2.allOvers.length > 0 || team2.currentOverBalls.length > 0) ? (
+                    [...team2.allOvers, ...(team2.currentOverBalls.length > 0 ? [team2.currentOverBalls] : [])].map((over, idx) => (
                       <div key={idx} className="over-summary">
                         <div className="over-label">Over {idx + 1}</div>
                         <div className="over-balls-mini">
