@@ -455,7 +455,7 @@ export default function CricketScorer() {
       <div className="container">
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '400px', textAlign: 'center' }}>
-            <h1>⚡ Cricket Scorer</h1>
+            <h1>Cricket Scorer</h1>
             <p className="description" style={{ marginBottom: '2rem' }}>Real-time multiplayer scoring</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <button className="start-btn" onClick={() => setAppMode('setup')}>🆕 Create New Match</button>
@@ -472,7 +472,7 @@ export default function CricketScorer() {
     return (
       <div className="modal active">
         <div className="modal-content">
-          <h1>⚡ Cricket Scorer</h1>
+          <h1>Cricket Scorer</h1>
           <p className="modal-subtitle">Set up your match</p>
 
           <div className="setup-section">
@@ -694,7 +694,7 @@ export default function CricketScorer() {
       <div className="container">
         <div className="modal-overlay">
           <div className="modal-content" style={{ maxWidth: '400px' }}>
-            <h1>🏏 Cricket Scorer</h1>
+            <h1>Cricket Scorer</h1>
             <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--space-xl)' }}>
               Live cricket scoring for you and your friends
             </p>
