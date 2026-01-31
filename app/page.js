@@ -90,6 +90,7 @@ export default function CricketScorer() {
     return () => unsubscribe();
   }, [currentMatchPIN, appMode]);
 
+  const [pendingExtra, setPendingExtra] = useState(null); // 'wide' | 'noball'
   const [isCreating, setIsCreating] = useState(false);
 
   // Create new match
@@ -236,7 +237,7 @@ export default function CricketScorer() {
     }
   };
 
-  const addBall = async (runs, isWicket, isExtra, extraType) => {
+  const addBall = async (runs, isWicket, isExtra, extraType, scoredRuns = 0) => {
     console.log(`[addBall] Innings: ${currentInnings}, Team: ${currentInnings === 1 ? team1Name : team2Name}, Overs: ${currentTeam.completedOvers}`);
 
     // Check if innings is over (total overs reached or 10 wickets)
@@ -265,7 +266,8 @@ export default function CricketScorer() {
       newTeam.wickets += 1;
     }
 
-    newTeam.currentOverBalls.push({ runs, isWicket, isExtra, extraType });
+    // Store scoredRuns explicitly for display
+    newTeam.currentOverBalls.push({ runs, isWicket, isExtra, extraType, scoredRuns });
 
     // Check if over is complete (6 legal balls)
     const newLegalBalls = newTeam.currentOverBalls.filter(b => !b.isExtra).length;
@@ -327,8 +329,32 @@ export default function CricketScorer() {
   };
 
   const addExtra = (type) => {
-    const runs = extrasScoring ? 1 : 0;
-    addBall(runs, false, true, type);
+    // Stage 1: Trigger modal
+    setPendingExtra(type);
+  };
+
+  const confirmExtraRuns = (scoredRuns) => {
+    // Stage 2: Calculate total and submit
+    const penalty = extrasScoring ? 1 : 0;
+    const totalRuns = penalty + scoredRuns;
+    // Pass scoredRuns as the 5th argument
+    addBall(totalRuns, false, true, pendingExtra, scoredRuns);
+    setPendingExtra(null);
+  };
+  // ... (skip down to UI rendering)
+
+  // Helper for rendering ball label
+  const getBallLabel = (ball) => {
+    if (ball.isExtra) {
+      const type = ball.extraType === 'wide' ? 'Wd' : 'Nb';
+      // If there are scored runs (e.g., 4 runs off a wide), show "Wd+4"
+      if (ball.scoredRuns !== undefined && ball.scoredRuns > 0) {
+        return `${type}+${ball.scoredRuns}`;
+      }
+      return type;
+    }
+    if (ball.isWicket) return 'W';
+    return ball.runs;
   };
 
   const forceNewOver = async () => {
@@ -504,15 +530,18 @@ export default function CricketScorer() {
           </div>
 
           <div className="setup-section">
-            <label>Extras Scoring</label>
+            <label>Extras Scoring (1 Run Penalty)</label>
             <div className="toggle-container">
               <span className={`toggle-label ${!extrasScoring ? 'active' : ''}`}>Off</span>
-              <div className="toggle-switch">
+              <label className="toggle-switch">
                 <input type="checkbox" checked={extrasScoring} onChange={e => setExtrasScoring(e.target.checked)} />
                 <span className="toggle-slider"></span>
-              </div>
+              </label>
               <span className={`toggle-label ${extrasScoring ? 'active' : ''}`}>On</span>
             </div>
+            <p style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+              {extrasScoring ? 'Wides/No-balls add 1 run (+ any scored runs)' : 'Wides/No-balls add 0 runs (+ any scored runs)'}
+            </p>
           </div>
 
           <button
@@ -645,7 +674,7 @@ export default function CricketScorer() {
                         <div className="over-balls-mini">
                           {over.map((ball, ballIdx) => (
                             <span key={ballIdx} className={`mini-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
-                              {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                              {getBallLabel(ball)}
                             </span>
                           ))}
                         </div>
@@ -668,7 +697,7 @@ export default function CricketScorer() {
                         <div className="over-balls-mini">
                           {over.map((ball, ballIdx) => (
                             <span key={ballIdx} className={`mini-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
-                              {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                              {getBallLabel(ball)}
                             </span>
                           ))}
                         </div>
@@ -740,6 +769,31 @@ export default function CricketScorer() {
         </div>
       )}
 
+      {/* Extras Runs Modal */}
+      {pendingExtra && (
+        <div className="modal-overlay" style={{ zIndex: 5000 }}>
+          <div className="modal-content" style={{ maxWidth: '350px' }}>
+            <h2>{pendingExtra === 'wide' ? 'Wide Ball' : 'No Ball'}</h2>
+            <p style={{ marginBottom: '1rem', color: '#ccc' }}>Any runs scored from this ball?</p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+              {[0, 1, 2, 3, 4, 6].map(runs => (
+                <button
+                  key={runs}
+                  className="start-btn"
+                  style={{ padding: '1rem', fontSize: '1.2rem', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-gradient-3)' }}
+                  onClick={() => confirmExtraRuns(runs)}
+                >
+                  +{runs}
+                </button>
+              ))}
+            </div>
+
+            <button className="run-btn" style={{ width: '100%' }} onClick={() => setPendingExtra(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       <header className="app-header">
         <div className="header-left">
           <h1>Cricket Scorer</h1>
@@ -794,6 +848,7 @@ export default function CricketScorer() {
           <button className="icon-btn" onClick={resetMatch} title="Start New Match">🔄</button>
         </div>
       </header>
+
 
       <div className="score-card">
         <div className="score-main">
@@ -851,7 +906,7 @@ export default function CricketScorer() {
         <div className="ball-indicators">
           {currentTeam.currentOverBalls.map((ball, i) => (
             <div key={i} className={`ball-indicator ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
-              {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+              {getBallLabel(ball)}
             </div>
           ))}
           {[...Array(6 - currentTeam.currentOverBalls.filter(b => !b.isExtra).length)].map((_, i) => (
@@ -867,23 +922,23 @@ export default function CricketScorer() {
             <h3>Score Runs</h3>
             <div className="run-buttons">
               {[0, 1, 2, 3, 4, 6].map(runs => (
-                <button key={runs} className="run-btn" onClick={() => addBall(runs, false, false, null)}>{runs}</button>
+                <button key={runs} className="run-btn" onClick={() => addBall(runs, false, false, null, runs)}>{runs}</button>
               ))}
             </div>
 
-            <button className="wicket-btn" onClick={() => addBall(0, true, false, null)}>
+            <button className="wicket-btn" onClick={() => addBall(0, true, false, null, 0)}>
               <span>Wicket</span>
             </button>
 
             <h3>Extras</h3>
             <div className="extras-buttons">
               <button className="extra-btn" onClick={() => addExtra('wide')}>
-                <span className="extra-label">Wide</span>
-                <span className="extra-score">{extrasScoring ? '+1' : '+0'}</span>
+                <span className="extra-label">Wide...</span>
+                <span className="extra-score">{extrasScoring ? '+1 + ?' : '+0 + ?'}</span>
               </button>
               <button className="extra-btn" onClick={() => addExtra('noball')}>
-                <span className="extra-label">No Ball</span>
-                <span className="extra-score">{extrasScoring ? '+1' : '+0'}</span>
+                <span className="extra-label">No Ball...</span>
+                <span className="extra-score">{extrasScoring ? '+1 + ?' : '+0 + ?'}</span>
               </button>
             </div>
             <p className="extras-note">* Extras don't count as legal deliveries</p>
@@ -931,7 +986,7 @@ export default function CricketScorer() {
                           <div className="over-balls">
                             {over.map((ball, ballIdx) => (
                               <div key={ballIdx} className={`history-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
-                                {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                                {getBallLabel(ball)}
                               </div>
                             ))}
                           </div>
@@ -945,7 +1000,7 @@ export default function CricketScorer() {
                           <div className="over-balls">
                             {data.currentOverBalls.map((ball, ballIdx) => (
                               <div key={ballIdx} className={`history-ball ${ball.isExtra ? 'extra' : ball.isWicket ? 'wicket' : `runs-${ball.runs}`}`}>
-                                {ball.isExtra ? (ball.extraType === 'wide' ? 'Wd' : 'Nb') : ball.isWicket ? 'W' : ball.runs}
+                                {getBallLabel(ball)}
                               </div>
                             ))}
                           </div>
