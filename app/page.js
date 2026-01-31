@@ -91,7 +91,50 @@ export default function CricketScorer() {
   }, [currentMatchPIN, appMode]);
 
   const [pendingExtra, setPendingExtra] = useState(null); // 'wide' | 'noball'
+  const [pendingRunOut, setPendingRunOut] = useState(false); // For legal ball run out
   const [isCreating, setIsCreating] = useState(false);
+  const [isRunOut, setIsRunOut] = useState(false); // For extra ball run out checkbox
+
+  // ... (inside confirmExtraRuns)
+
+
+  // ... (inside Modal JSX)
+  {
+    pendingExtra && (
+      <div className="modal-overlay" style={{ zIndex: 5000 }}>
+        <div className="modal-content" style={{ maxWidth: '350px' }}>
+          <h2>{pendingExtra === 'wide' ? 'Wide Ball' : 'No Ball'}</h2>
+          <p style={{ marginBottom: '1rem', color: '#ccc' }}>Any runs scored from this ball?</p>
+
+          <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+            <input
+              type="checkbox"
+              id="runout-check"
+              checked={isRunOut}
+              onChange={e => setIsRunOut(e.target.checked)}
+              style={{ width: '20px', height: '20px' }}
+            />
+            <label htmlFor="runout-check" style={{ fontSize: '1rem', cursor: 'pointer' }}>Wicket (Run Out)</label>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+            {[0, 1, 2, 3, 4, 6].map(runs => (
+              <button
+                key={runs}
+                className="start-btn"
+                style={{ padding: '1rem', fontSize: '1.2rem', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-gradient-3)' }}
+                onClick={() => confirmExtraRuns(runs)}
+              >
+                +{runs}
+              </button>
+            ))}
+          </div>
+
+          <button className="run-btn" style={{ width: '100%' }} onClick={() => { setPendingExtra(null); setIsRunOut(false); }}>Cancel</button>
+        </div>
+      </div>
+    )
+  }
 
   // Create new match
   const createMatch = async (e) => {
@@ -237,7 +280,7 @@ export default function CricketScorer() {
     }
   };
 
-  const addBall = async (runs, isWicket, isExtra, extraType, scoredRuns = 0) => {
+  const addBall = async (runs, isWicket, isExtra, extraType, scoredRuns = 0, wicketType = null) => {
     console.log(`[addBall] Innings: ${currentInnings}, Team: ${currentInnings === 1 ? team1Name : team2Name}, Overs: ${currentTeam.completedOvers}`);
 
     // Check if innings is over (total overs reached or 10 wickets)
@@ -267,7 +310,7 @@ export default function CricketScorer() {
     }
 
     // Store scoredRuns explicitly for display
-    newTeam.currentOverBalls.push({ runs, isWicket, isExtra, extraType, scoredRuns });
+    newTeam.currentOverBalls.push({ runs, isWicket, isExtra, extraType, scoredRuns, wicketType });
 
     // Check if over is complete (6 legal balls)
     const newLegalBalls = newTeam.currentOverBalls.filter(b => !b.isExtra).length;
@@ -337,23 +380,42 @@ export default function CricketScorer() {
     // Stage 2: Calculate total and submit
     const penalty = extrasScoring ? 1 : 0;
     const totalRuns = penalty + scoredRuns;
-    // Pass scoredRuns as the 5th argument
-    addBall(totalRuns, false, true, pendingExtra, scoredRuns);
+    // Pass scoredRuns as the 5th argument, isRunOut as 2nd (isWicket), and 'runout' as 6th if applicable
+    addBall(totalRuns, isRunOut, true, pendingExtra, scoredRuns, isRunOut ? 'runout' : null);
     setPendingExtra(null);
+    setIsRunOut(false);
   };
+
+  const confirmRunOut = (runs) => {
+    // Legal ball run out: runs + wicket
+    addBall(runs, true, false, null, runs, 'runout');
+    setPendingRunOut(false);
+  };
+
+
   // ... (skip down to UI rendering)
 
   // Helper for rendering ball label
   const getBallLabel = (ball) => {
     if (ball.isExtra) {
       const type = ball.extraType === 'wide' ? 'Wd' : 'Nb';
-      // If there are scored runs (e.g., 4 runs off a wide), show "Wd+4"
+      // Extras with Run Out?
+      if (ball.wicketType === 'runout' || (ball.isWicket && ball.isExtra)) {
+        // Show Wd+1+W or just Wd+W if 0 runs
+        if (ball.scoredRuns > 0) return `${type}+${ball.scoredRuns}+RO`;
+        return `${type}+RO`;
+      }
       if (ball.scoredRuns !== undefined && ball.scoredRuns > 0) {
         return `${type}+${ball.scoredRuns}`;
       }
       return type;
     }
-    if (ball.isWicket) return 'W';
+    if (ball.isWicket) {
+      if (ball.wicketType === 'runout') {
+        return ball.runs > 0 ? `${ball.runs}+RO` : 'RO';
+      }
+      return 'W';
+    }
     return ball.runs;
   };
 
@@ -776,6 +838,17 @@ export default function CricketScorer() {
             <h2>{pendingExtra === 'wide' ? 'Wide Ball' : 'No Ball'}</h2>
             <p style={{ marginBottom: '1rem', color: '#ccc' }}>Any runs scored from this ball?</p>
 
+            <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+              <input
+                type="checkbox"
+                id="runout-check"
+                checked={isRunOut}
+                onChange={e => setIsRunOut(e.target.checked)}
+                style={{ width: '20px', height: '20px' }}
+              />
+              <label htmlFor="runout-check" style={{ fontSize: '1rem', cursor: 'pointer' }}>Wicket (Run Out)</label>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
               {[0, 1, 2, 3, 4, 6].map(runs => (
                 <button
@@ -790,6 +863,29 @@ export default function CricketScorer() {
             </div>
 
             <button className="run-btn" style={{ width: '100%' }} onClick={() => setPendingExtra(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Run Out Modal (Legal Ball) */}
+      {pendingRunOut && (
+        <div className="modal-overlay" style={{ zIndex: 5000 }}>
+          <div className="modal-content" style={{ maxWidth: '350px' }}>
+            <h2>Run Out</h2>
+            <p style={{ marginBottom: '1rem', color: '#ccc' }}>Runs completed before wicket?</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
+              {[0, 1, 2, 3].map(runs => (
+                <button
+                  key={runs}
+                  className="start-btn"
+                  style={{ padding: '1rem', fontSize: '1.2rem', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-gradient-3)' }}
+                  onClick={() => confirmRunOut(runs)}
+                >
+                  {runs}
+                </button>
+              ))}
+            </div>
+            <button className="run-btn" style={{ width: '100%' }} onClick={() => setPendingRunOut(false)}>Cancel</button>
           </div>
         </div>
       )}
@@ -926,9 +1022,14 @@ export default function CricketScorer() {
               ))}
             </div>
 
-            <button className="wicket-btn" onClick={() => addBall(0, true, false, null, 0)}>
-              <span>Wicket</span>
-            </button>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+              <button className="wicket-btn" style={{ flex: 1 }} onClick={() => addBall(0, true, false, null, 0)}>
+                <span>Wicket</span>
+              </button>
+              <button className="wicket-btn" style={{ flex: 1, background: '#e11d48' }} onClick={() => setPendingRunOut(true)}>
+                <span>Run Out...</span>
+              </button>
+            </div>
 
             <h3>Extras</h3>
             <div className="extras-buttons">
